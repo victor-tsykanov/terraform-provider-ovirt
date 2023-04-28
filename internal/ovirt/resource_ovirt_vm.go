@@ -68,7 +68,6 @@ var vmSchema = map[string]*schema.Schema{
 	"cpu_cores": {
 		Type:             schema.TypeInt,
 		Optional:         true,
-		ForceNew:         true,
 		RequiredWith:     []string{"cpu_sockets", "cpu_threads"},
 		Description:      "Number of CPU cores to allocate to the VM. If set, cpu_threads and cpu_sockets must also be specified.",
 		ValidateDiagFunc: validatePositiveInt,
@@ -76,7 +75,6 @@ var vmSchema = map[string]*schema.Schema{
 	"cpu_threads": {
 		Type:             schema.TypeInt,
 		Optional:         true,
-		ForceNew:         true,
 		RequiredWith:     []string{"cpu_sockets", "cpu_cores"},
 		Description:      "Number of CPU threads to allocate to the VM. If set, cpu_cores and cpu_sockets must also be specified.",
 		ValidateDiagFunc: validatePositiveInt,
@@ -84,7 +82,6 @@ var vmSchema = map[string]*schema.Schema{
 	"cpu_sockets": {
 		Type:             schema.TypeInt,
 		Optional:         true,
-		ForceNew:         true,
 		RequiredWith:     []string{"cpu_threads", "cpu_cores"},
 		Description:      "Number of CPU sockets to allocate to the VM. If set, cpu_cores and cpu_threads must also be specified.",
 		ValidateDiagFunc: validatePositiveInt,
@@ -795,6 +792,54 @@ func (p *provider) vmUpdate(ctx context.Context, data *schema.ResourceData, _ in
 				},
 			)
 		}
+	}
+	cpuMode, cpuModeOK := data.GetOk("cpu_mode")
+	cpuCores, cpuCoresOK := data.GetOk("cpu_cores")
+	cpuThreads, cpuThreadsOK := data.GetOk("cpu_threads")
+	cpuSockets, cpuSocketsOK := data.GetOk("cpu_sockets")
+	cpu := ovirtclient.NewVMCPUParams()
+	cpuTopo := ovirtclient.NewVMCPUTopoParams()
+	if cpuCoresOK {
+		_, err := cpuTopo.WithCores(uint(cpuCores.(int)))
+		if err != nil {
+			diags = append(diags, errorToDiag("add CPU cores", err))
+		}
+	}
+	if cpuThreadsOK {
+		_, err := cpuTopo.WithThreads(uint(cpuThreads.(int)))
+		if err != nil {
+			diags = append(diags, errorToDiag("add CPU threads", err))
+		}
+	}
+	if cpuSocketsOK {
+		_, err := cpuTopo.WithSockets(uint(cpuSockets.(int)))
+		if err != nil {
+			diags = append(diags, errorToDiag("add CPU sockets", err))
+		}
+	}
+	if cpuCoresOK || cpuThreadsOK || cpuSocketsOK {
+		_, err := cpu.WithTopo(cpuTopo)
+		if err != nil {
+			diags = append(diags, errorToDiag("add CPU topology", err))
+		}
+	}
+	if cpuModeOK {
+		_, err := cpu.WithMode(ovirtclient.CPUMode(cpuMode.(string)))
+		if err != nil {
+			diags = append(diags, errorToDiag("add CPU mode", err))
+		}
+	}
+	_, err := params.WithCPU(cpu)
+	if err != nil {
+		diags = append(diags, errorToDiag("add CPU", err))
+	}
+	memory, ok := data.GetOk("memory")
+	if !ok {
+		return diags
+	}
+	_, err = params.WithMemory(int64(memory.(int)))
+	if err != nil {
+		diags = append(diags, errorToDiag("set memory", err))
 	}
 	if len(diags) > 0 {
 		return diags
